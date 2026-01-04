@@ -12,7 +12,7 @@ const defaultFilters: JobFilters = {
 };
 
 // Pega a URL configurada no Netlify. Se não houver, usa o localhost.
-const PYTHON_API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/search-jobs";
+const PYTHON_API_URL = import.meta.env.VITE_API_URL || "https://buscavagas.onzender.com/api/search-jobs;
 
 async function fetchJobsFromApi(filters: JobFilters): Promise<Job[]> {
   console.log('Solicitando vagas reais para:', PYTHON_API_URL);
