@@ -1,0 +1,4 @@
+project_id = "gukjlrifmdgfdpmdywoc"
+
+[functions.search-jobs]
+verify_jwt = false
