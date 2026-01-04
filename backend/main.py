@@ -7,15 +7,11 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import requests
 
-# Carrega variáveis de ambiente
 load_dotenv()
 
-app = FastAPI(
-    title="BuscaVagas API",
-    description="Backend para agregação de vagas reais via SerpApi"
-)
+app = FastAPI(title="BuscaVagas API")
 
-# Configuração de CORS
+# Configuração de CORS para aceitar requisições do seu domínio Netlify
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,54 +24,54 @@ class SearchParams(BaseModel):
     query: str
     location: str
 
-# Endpoint de saúde
 @app.get("/")
 async def health_check():
-    return {"status": "online", "message": "BuscaVagas API rodando com sucesso!"}
+    return {"status": "online", "server_time": int(time.time())}
 
 @app.post("/api/search-jobs")
 async def search_jobs(params: SearchParams):
     serpapi_key = os.getenv("SERPAPI_KEY")
     if not serpapi_key:
-        print("ERRO: SERPAPI_KEY não encontrada nas variáveis de ambiente.")
-        raise HTTPException(status_code=500, detail="Configuração de API ausente.")
+        raise HTTPException(status_code=500, detail="SERPAPI_KEY não configurada")
 
-    # 1. Limpeza e construção inteligente da Query
     query_term = params.query.strip()
     location_term = params.location.strip()
     
-    # Se o usuário não digitar nada, definimos um padrão para não vir vazio
-    final_query = query_term if query_term else "vagas de emprego"
-    
+    # ESTRATÉGIA PARA MAIS RESULTADOS:
+    # Misturamos a cidade no termo principal 'q' para garantir que o Google
+    # entenda o contexto local, ignorando que o servidor está nos EUA.
+    if query_term and location_term:
+        final_q = f"{query_term} em {location_term}"
+    else:
+        final_q = query_term or "vagas de emprego"
+
     serp_params = {
         "engine": "google_jobs",
-        "q": final_query,
-        "hl": "pt-br",
-        "gl": "br",
+        "q": final_q,
+        "hl": "pt-br", # Idioma em Português
+        "gl": "br",    # Resultados do Brasil
         "api_key": serpapi_key
     }
     
-    # 2. Passamos a localização separadamente (melhora muito o resultado no Google Jobs)
+    # Também passamos a localização como parâmetro oficial
     if location_term:
         serp_params["location"] = location_term
 
-    print(f"Iniciando busca real: Termo='{final_query}', Local='{location_term}'")
+    print(f"Buscando: '{final_q}' | Local: '{location_term}'")
 
     try:
-        # Aumentamos o timeout para 15s para dar tempo do Google Jobs responder
         response = requests.get("https://serpapi.com/search.json", params=serp_params, timeout=15)
         response.raise_for_status()
         data = response.json()
         
         job_results = data.get("jobs_results", [])
-        print(f"Sucesso: {len(job_results)} vagas encontradas na SerpApi.")
+        print(f"Sucesso: {len(job_results)} vagas encontradas.")
 
         transformed_jobs = []
-        
         for index, job in enumerate(job_results):
             desc = job.get("description", "").lower()
             
-            # Heurísticas simples para preencher campos que a API nem sempre traz
+            # Heurísticas básicas para preencher os cards
             job_type = "CLT"
             if any(t in desc for t in ["pj", "pessoa jurídica", "mei"]): job_type = "PJ"
             elif any(t in desc for t in ["estágio", "estagiário"]): job_type = "Estágio"
@@ -86,7 +82,7 @@ async def search_jobs(params: SearchParams):
 
             transformed_jobs.append({
                 "id": f"real-{index}-{int(time.time())}",
-                "title": job.get("title", "Vaga sem título"),
+                "title": job.get("title", "Vaga"),
                 "company": job.get("company_name", "Confidencial"),
                 "companyLogo": job.get("thumbnail") or f"https://ui-avatars.com/api/?name={job.get('company_name', 'V')[:2]}&background=random",
                 "location": job.get("location", location_term or "Brasil"),
@@ -98,21 +94,17 @@ async def search_jobs(params: SearchParams):
                 "requirements": job.get("detected_extensions", {}).get("qualifications", []),
                 "benefits": [],
                 "postedAt": job.get("detected_extensions", {}).get("posted_at", "Recente"),
-                "source": job.get("via", "Google Jobs").replace("via ", ""),
+                "source": job.get("via", "Google").replace("via ", ""),
                 "applicationUrl": job.get("apply_options", [{}])[0].get("link", "#"),
                 "isUrgent": "urgente" in desc,
-                "isFeatured": index < 2,
-                "isSimplified": "fácil" in desc or "apply now" in desc
+                "isFeatured": index < 2
             })
             
         return {"jobs": transformed_jobs}
         
-    except requests.exceptions.Timeout:
-        print("ERRO: A SerpApi demorou muito para responder (Timeout).")
-        raise HTTPException(status_code=504, detail="Tempo de busca esgotado.")
     except Exception as e:
-        print(f"ERRO CRÍTICO: {str(e)}")
-        raise HTTPException(status_code=500, detail="Erro interno ao processar vagas.")
+        print(f"Erro SerpApi: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro ao buscar vagas reais")
 
 if __name__ == "__main__":
     import uvicorn
