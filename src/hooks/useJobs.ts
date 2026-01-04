@@ -12,10 +12,15 @@ const defaultFilters: JobFilters = {
   location: '',
 };
 
-const PYTHON_API_URL = "http://localhost:8000/api/search-jobs";
+/** * AJUSTE CRUCIAL: 
+ * Agora o código tenta ler a variável VITE_API_URL que você configurou no Netlify.
+ * Se ela não existir (como no seu PC), ele usa o localhost por padrão.
+ */
+const PYTHON_API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/search-jobs";
 
 async function fetchJobsFromApi(filters: JobFilters): Promise<Job[]> {
-  console.log('Fetching jobs with filters (Python):', filters);
+  // Log para você ver no console do navegador qual URL está sendo chamada
+  console.log('Conectando em:', PYTHON_API_URL);
 
   try {
     const response = await fetch(PYTHON_API_URL, {
@@ -35,23 +40,28 @@ async function fetchJobsFromApi(filters: JobFilters): Promise<Job[]> {
     }
 
     const data = await response.json();
-    console.log('Jobs received from Python API:', data?.jobs?.length || 0);
+    console.log('Vagas recebidas do Backend:', data?.jobs?.length || 0);
     return data?.jobs || [];
   } catch (err: any) {
-    console.error('Failed to fetch jobs from Python API:', err);
+    console.error('Erro na requisição:', err);
 
     // Se a chave não estiver configurada no backend
     if (err.message.includes('SERPAPI_KEY')) {
       throw err;
     }
 
-    // Se o servidor Python estiver offline
+    // Ajuste na mensagem de erro para ser mais inteligente
     if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-      throw new Error("O servidor Python (backend) não está rodando na porta 8000.");
+      const isLocal = window.location.hostname === 'localhost';
+      const errorMessage = isLocal 
+        ? "O servidor Python (backend) não está rodando na porta 8000 localmente."
+        : "Não foi possível conectar ao servidor de busca. O backend (Render) pode estar 'acordando'. Tente novamente em alguns segundos.";
+      
+      throw new Error(errorMessage);
     }
 
-    // Fallback to mock data with filtering for other network issues
-    console.warn('Falling back to mock data');
+    // Fallback para dados mockados em caso de outros erros
+    console.warn('Usando dados de teste devido a erro de conexão');
     return filterMockJobs(filters);
   }
 }
@@ -89,7 +99,7 @@ export function useJobs(filters: JobFilters = defaultFilters) {
   return useQuery({
     queryKey: ['jobs', filters],
     queryFn: () => fetchJobsFromApi(filters),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000, // 5 minutos
     retry: 1,
   });
 }
