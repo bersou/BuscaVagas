@@ -28,6 +28,10 @@ class SearchParams(BaseModel):
 async def health_check():
     return {"status": "online", "message": "Backend operando no Render"}
 
+@app.post("/")
+async def search_jobs_root(params: SearchParams):
+    return await search_jobs(params)
+
 @app.post("/api/search-jobs")
 async def search_jobs(params: SearchParams):
     serpapi_key = os.getenv("SERPAPI_KEY")
