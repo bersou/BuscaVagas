@@ -7,11 +7,12 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import requests
 
+# Carrega variáveis de ambiente
 load_dotenv()
 
 app = FastAPI(title="BuscaVagas API")
 
-# Configuração de CORS para aceitar requisições do seu domínio Netlify
+# --- CONFIGURAÇÃO DE CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,38 +27,37 @@ class SearchParams(BaseModel):
 
 @app.get("/")
 async def health_check():
-    return {"status": "online", "server_time": int(time.time())}
+    return {"status": "online", "message": "Backend do BuscaVagas operante"}
 
 @app.post("/api/search-jobs")
 async def search_jobs(params: SearchParams):
     serpapi_key = os.getenv("SERPAPI_KEY")
     if not serpapi_key:
-        raise HTTPException(status_code=500, detail="SERPAPI_KEY não configurada")
+        raise HTTPException(status_code=500, detail="Configuração ausente: SERPAPI_KEY")
 
     query_term = params.query.strip()
     location_term = params.location.strip()
     
     # ESTRATÉGIA PARA MAIS RESULTADOS:
-    # Misturamos a cidade no termo principal 'q' para garantir que o Google
-    # entenda o contexto local, ignorando que o servidor está nos EUA.
+    # Misturamos a cidade no termo principal 'q' para o Google focar na região correta
     if query_term and location_term:
         final_q = f"{query_term} em {location_term}"
     else:
-        final_q = query_term or "vagas de emprego"
+        final_q = query_term or "vagas de emprego Brasil"
 
     serp_params = {
         "engine": "google_jobs",
         "q": final_q,
-        "hl": "pt-br", # Idioma em Português
-        "gl": "br",    # Resultados do Brasil
+        "hl": "pt-br", # Idioma: Português
+        "gl": "br",    # País: Brasil
         "api_key": serpapi_key
     }
     
-    # Também passamos a localização como parâmetro oficial
+    # Também passamos a localização como parâmetro oficial para reforçar
     if location_term:
         serp_params["location"] = location_term
 
-    print(f"Buscando: '{final_q}' | Local: '{location_term}'")
+    print(f"Buscando: '{final_q}' no local: '{location_term}'")
 
     try:
         response = requests.get("https://serpapi.com/search.json", params=serp_params, timeout=15)
@@ -65,25 +65,25 @@ async def search_jobs(params: SearchParams):
         data = response.json()
         
         job_results = data.get("jobs_results", [])
-        print(f"Sucesso: {len(job_results)} vagas encontradas.")
+        print(f"API retornou {len(job_results)} vagas.")
 
         transformed_jobs = []
         for index, job in enumerate(job_results):
             desc = job.get("description", "").lower()
             
-            # Heurísticas básicas para preencher os cards
+            # Heurísticas para melhorar os dados exibidos
             job_type = "CLT"
-            if any(t in desc for t in ["pj", "pessoa jurídica", "mei"]): job_type = "PJ"
-            elif any(t in desc for t in ["estágio", "estagiário"]): job_type = "Estágio"
+            if any(t in desc for t in ["pj", "mei", "jurídica"]): job_type = "PJ"
+            elif "estágio" in desc: job_type = "Estágio"
             
             modality = "Presencial"
-            if any(t in desc for t in ["remoto", "home office", "trabalho remoto"]): modality = "Remoto"
+            if any(t in desc for t in ["remoto", "home office"]): modality = "Remoto"
             elif "híbrido" in desc: modality = "Híbrido"
 
             transformed_jobs.append({
                 "id": f"real-{index}-{int(time.time())}",
                 "title": job.get("title", "Vaga"),
-                "company": job.get("company_name", "Confidencial"),
+                "company": job.get("company_name", "Empresa Confidencial"),
                 "companyLogo": job.get("thumbnail") or f"https://ui-avatars.com/api/?name={job.get('company_name', 'V')[:2]}&background=random",
                 "location": job.get("location", location_term or "Brasil"),
                 "type": job_type,
@@ -103,8 +103,8 @@ async def search_jobs(params: SearchParams):
         return {"jobs": transformed_jobs}
         
     except Exception as e:
-        print(f"Erro SerpApi: {str(e)}")
-        raise HTTPException(status_code=500, detail="Erro ao buscar vagas reais")
+        print(f"Erro na requisição SerpApi: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro ao buscar dados na API.")
 
 if __name__ == "__main__":
     import uvicorn
