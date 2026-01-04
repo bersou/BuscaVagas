@@ -3,4 +3,3 @@ uvicorn
 python-dotenv
 requests
 pydantic
-fastapi-cors
