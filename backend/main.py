@@ -7,14 +7,19 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import requests
 
+# Carrega variáveis de ambiente do .env em desenvolvimento
 load_dotenv()
 
-app = FastAPI(title="BuscaVagas API")
+app = FastAPI(
+    title="BuscaVagas API",
+    description="Backend para agregação de vagas reais via SerpApi"
+)
 
-# Configure CORS
+# --- CONFIGURAÇÃO DE SEGURANÇA (CORS) ---
+# Permitir que seu frontend no Netlify acesse este backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Em produção, substitua ["*"] por ["https://buscavagas.netlify.app"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,18 +49,21 @@ class Job(BaseModel):
     isFeatured: bool = False
     isSimplified: bool = False
 
+# Endpoint de saúde para monitoramento da hospedagem
+@app.get("/")
+async def health_check():
+    return {"status": "online", "message": "BuscaVagas API rodando com sucesso!"}
+
 @app.post("/api/search-jobs")
 async def search_jobs(params: SearchParams):
     serpapi_key = os.getenv("SERPAPI_KEY")
     if not serpapi_key:
-        raise HTTPException(status_code=500, detail="SERPAPI_KEY not configured")
+        raise HTTPException(status_code=500, detail="Configuração ausente: SERPAPI_KEY não encontrada.")
 
+    # Lógica de construção da Query
     search_query = params.query.strip()
     if not search_query:
-        if params.location:
-            search_query = f"vagas de emprego {params.location}"
-        else:
-            search_query = "vagas de emprego Brasil"
+        search_query = f"vagas de emprego {params.location}" if params.location else "vagas de emprego Brasil"
     elif params.location:
         search_query = f"{search_query} {params.location}"
 
@@ -71,7 +79,7 @@ async def search_jobs(params: SearchParams):
         serp_params["location"] = params.location
 
     try:
-        response = requests.get("https://serpapi.com/search.json", params=serp_params)
+        response = requests.get("https://serpapi.com/search.json", params=serp_params, timeout=10)
         response.raise_for_status()
         data = response.json()
         
@@ -81,18 +89,18 @@ async def search_jobs(params: SearchParams):
         for index, job in enumerate(job_results):
             desc = job.get("description", "").lower()
             
-            # Simple heuristics for job details
+            # Heurísticas aprimoradas para detalhes da vaga
             job_type = "CLT"
-            if "pj" in desc or "pessoa jurídica" in desc: job_type = "PJ"
-            elif "estágio" in desc or "estagiário" in desc: job_type = "Estágio"
+            if any(term in desc for term in ["pj", "pessoa jurídica", "contrato pj"]): job_type = "PJ"
+            elif any(term in desc for term in ["estágio", "estagiário", "internship"]): job_type = "Estágio"
             
             modality = "Presencial"
-            if any(term in desc for term in ["remoto", "home office", "trabalho remoto"]): modality = "Remoto"
-            elif "híbrido" in desc: modality = "Híbrido"
+            if any(term in desc for term in ["remoto", "home office", "trabalho remoto", "anywhere"]): modality = "Remoto"
+            elif "híbrido" in desc or "hybrid" in desc: modality = "Híbrido"
             
             level = "Pleno"
-            if any(term in desc for term in ["júnior", "junior", "jr"]): level = "Júnior"
-            elif any(term in desc for term in ["sênior", "senior", "sr"]): level = "Sênior"
+            if any(term in desc for term in ["júnior", "junior", "jr", "trainee"]): level = "Júnior"
+            elif any(term in desc for term in ["sênior", "senior", "sr", "especialista"]): level = "Sênior"
 
             transformed_jobs.append({
                 "id": f"py-{index}-{int(time.time())}",
@@ -103,24 +111,30 @@ async def search_jobs(params: SearchParams):
                 "type": job_type,
                 "modality": modality,
                 "level": level,
-                "salary": None,  # Extraction logic could be improved
+                "salary": job.get("salary"), # SerpApi às vezes já traz o campo formatado
                 "description": job.get("description", ""),
                 "requirements": job.get("detected_extensions", {}).get("qualifications", []),
                 "benefits": [],
-                "postedAt": job.get("detected_extensions", {}).get("posted_at", "Recent"),
+                "postedAt": job.get("detected_extensions", {}).get("posted_at", "Recente"),
                 "source": job.get("via", "Google Jobs").replace("via ", ""),
                 "applicationUrl": job.get("apply_options", [{}])[0].get("link", "#"),
-                "isUrgent": "urgente" in desc,
-                "isFeatured": index < 3,
-                "isSimplified": "simplified" in desc
+                "isUrgent": any(term in desc for term in ["urgente", "contratação imediata"]),
+                "isFeatured": index < 2,
+                "isSimplified": "candidatura simplificada" in desc or "apply now" in desc
             })
             
         return {"jobs": transformed_jobs}
         
+    except requests.exceptions.RequestException as e:
+        print(f"Erro na SerpApi: {e}")
+        raise HTTPException(status_code=502, detail="Erro ao buscar dados na API externa.")
     except Exception as e:
-        print(f"Error calling SerpApi: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Erro interno: {e}")
+        raise HTTPException(status_code=500, detail="Erro interno no servidor Python.")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # A porta deve vir da variável de ambiente PORT (exigência do Render/Railway)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
+    
