@@ -1,23 +1,25 @@
 {
-  "name": "BuscaVagas",
-  "short_name": "BuscaVagas",
-  "description": "Buscador de Vagas Moderno",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
   "theme_color": "#2563eb",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "scope": "/",
+  "start_url": "/",
+  "name": "BuscaVagas Pro",
+  "short_name": "BuscaVagas",
+  "description": "Seu assistente inteligente na busca por emprego.",
   "icons": [
     {
-      "src": "/social-icon.png",
-      "sizes": "512x512",
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/social-icon.png",
+      "src": "/pwa-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "orientation": "portrait"
 }
